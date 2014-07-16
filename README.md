@@ -1,4 +1,4 @@
 dumper
-======
+==========
 
-dumps given ip/port network data to file
+dump given ip/port netwotk data to file
