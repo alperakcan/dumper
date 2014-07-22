@@ -17,7 +17,6 @@
 #include <pthread.h>
 
 #if defined(SYNC_USE_FUTEX) && (SYNC_USE_FUTEX == 1)
-#error futex
 
 #include <limits.h>
 #include <sys/syscall.h>
