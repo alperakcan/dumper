@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2013 Alper Akcan <alper.akcan@gmail.com>
+ *  Copyright (c) 2013-2014 Alper Akcan <alper.akcan@gmail.com>
  *
  * This program is free software. It comes without any warranty, to
  * the extent permitted by applicable law. You can redistribute it
@@ -8,159 +8,27 @@
  * http://www.wtfpl.net/ for more details.
  */
 
-#ifndef __SYNC__
-#define __SYNC__
+#ifndef __SYNC_H___
+#define __SYNC_H___
 
-#if defined(ENABLE_FUTEX) && (ENABLE_FUTEX == 1)
+struct mutex;
 
-#include <unistd.h>
-#include <limits.h>
-#include <sys/syscall.h>
-#include <linux/futex.h>
+struct mutex * mutex_create (void);
+int mutex_destroy (struct mutex *mutex);
+int mutex_lock (struct mutex *mutex);
+int mutex_unlock (struct mutex *mutex);
 
-typedef uint32_t mutex;
-typedef struct condvar condvar;
+struct cond;
 
-struct condvar	{
-	mutex *m;
-	int seq;
-};
+struct cond * cond_create (struct mutex *mutex);
+int cond_destroy (struct cond *cond);
+int cond_signal (struct cond *cond);
+int cond_broadcast (struct cond *cond);
+int cond_wait (struct cond *cond);
 
-void mutex_init (mutex *m)
-{
-	*m = 0;
-}
+struct thread;
 
-void mutex_destroy (mutex *m)
-{
-	*m = 0;
-}
-
-void mutex_lock (mutex *m)
-{
-	uint32_t c;
-	if ((c = __sync_val_compare_and_swap(m, 0, 1)) != 0) {
-		do {
-			if ((c == 2) || __sync_val_compare_and_swap(m, 1, 2) != 0) {
-				syscall(SYS_futex, m, FUTEX_WAIT_PRIVATE, 2, NULL, NULL, 0);
-			}
-		} while ((c = __sync_val_compare_and_swap(m, 0, 2)) != 0);
-	}
-}
-
-void mutex_unlock (mutex *m)
-{
-	if (__sync_fetch_and_sub(m, 1) != 1) {
-		*m = 0;
-		syscall(SYS_futex, m, FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0);
-	}
-}
-
-void cond_init (condvar *c, mutex *m)
-{
-	c->m = m;
-	c->seq = 0;
-}
-
-void cond_destroy (condvar *c)
-{
-	c->m = NULL;
-	c->seq = 0;
-}
-
-void cond_signal (condvar *c)
-{
-	__sync_fetch_and_add(&(c->seq), 1);
-	syscall(SYS_futex, &(c->seq), FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0);
-}
-
-void cond_broadcast (condvar *c)
-{
-	__sync_fetch_and_add(&(c->seq), 1);
-	syscall(SYS_futex, &(c->seq), FUTEX_REQUEUE_PRIVATE, 1, (void *) INT_MAX, c->m, 0);
-}
-
-static __inline uint32_t xchg32 (volatile uint32_t *addr, uint32_t newval)
-{
-	uint32_t result;
-	asm volatile(
-		"lock; xchgl %0, %1" :
-		"+m" (*addr), "=a" (result) :
-		"1" (newval) :
-		"cc"
-	);
-     return result;
-}
-
-void cond_wait (condvar *c)
-{
-	uint32_t oldSeq = c->seq;
-	mutex_unlock(c->m);
-	syscall(SYS_futex, &(c->seq), FUTEX_WAIT_PRIVATE, oldSeq, NULL, NULL, 0);
-	while (xchg32(c->m, 2))	{
-		syscall(SYS_futex, c->m, FUTEX_WAIT_PRIVATE, 2, NULL, NULL, 0);
-	}
-}
-
-#else
-
-#include <pthread.h>
-
-typedef pthread_mutex_t mutex;
-typedef struct condvar condvar;
-
-struct condvar	{
-	mutex *m;
-	pthread_cond_t c;
-};
-
-void mutex_init (mutex *m)
-{
-	pthread_mutex_init(m, NULL);
-}
-
-void mutex_destroy (mutex *m)
-{
-	pthread_mutex_destroy(m);
-}
-
-void mutex_lock (mutex *m)
-{
-	pthread_mutex_lock(m);
-}
-
-void mutex_unlock (mutex *m)
-{
-	pthread_mutex_unlock(m);
-}
-
-void cond_init (condvar *c, mutex *m)
-{
-	c->m = m;
-	pthread_cond_init(&c->c, NULL);
-}
-
-void cond_destroy (condvar *c)
-{
-	c->m = NULL;
-	pthread_cond_destroy(&c->c);
-}
-
-void cond_signal (condvar *c)
-{
-	pthread_cond_signal(&c->c);
-}
-
-void cond_broadcast (condvar *c)
-{
-	pthread_cond_broadcast(&c->c);
-}
-
-void cond_wait (condvar *c)
-{
-	pthread_cond_wait(&c->c, c->m);
-}
-
-#endif
+struct thread * thread_create (void * (*function) (void *arg), void *arg);
+int thread_join (struct thread *thread);
 
 #endif
